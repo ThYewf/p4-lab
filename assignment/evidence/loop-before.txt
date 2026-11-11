@@ -1,0 +1,6 @@
+mininet> sh grep -c "Processing packet received" logs/s1.txt logs/s2.txt
+logs/s1.txt:906
+logs/s2.txt:905
+mininet> sh sleep 5; grep -c "Processing packet received" logs/s1.txt logs/s2.txt
+logs/s1.txt:1143
+logs/s2.txt:1143

@@ -1,0 +1,162 @@
+C4 — Result and Interpretation
+
+A single tunnelled packet with destination ID 3 and initial hop limit 8 was injected into the same forwarding loop used in C1.
+
+The packet-processing counters increased from 661 to 666 on s1 (+5) and from 659 to 663 on s2 (+4). After a further three seconds, both counters remained unchanged.
+
+The nine packet-processing events correspond to eight successful forwarding operations and one final drop at s1 when the hop limit reached zero. The s1 log confirms execution of `MyIngress.drop` and `mark_to_drop(standard_metadata)`.
+
+Neither destination host received the looped packet.
+
+Conclusion: The modified P4 program successfully terminates the forwarding loop, whereas the original implementation continued forwarding packets during the observation period.
+
+---
+
+mininet> h1 ping -c 2 h3
+PING 10.79.0.3 (10.79.0.3) 56(84) bytes of data.
+64 bytes from 10.79.0.3: icmp_seq=1 ttl=62 time=7.21 ms
+64 bytes from 10.79.0.3: icmp_seq=2 ttl=62 time=7.30 ms
+
+--- 10.79.0.3 ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss, time 1001ms
+rtt min/avg/max/mdev = 7.205/7.250/7.296/0.045 ms
+
+mininet> sh grep -c "Processing packet received" logs/s1.txt logs/s2.txt
+logs/s1.txt:661
+logs/s2.txt:659
+mininet> h1 python3 send.py 10.79.0.3 "loop-after" --tunnel 3 --hops 8
+###[ Ethernet ]### 
+  dst       = ff:ff:ff:ff:ff:ff
+  src       = 00:00:00:00:00:01
+  type      = 0x1212
+###[ MyTunnel ]### 
+     proto_id  = 2048
+     dst_id    = 3
+     hop_limit = 8
+###[ IP ]### 
+        version   = 4
+        ihl       = 5
+        tos       = 0x0
+        len       = 38
+        id        = 1
+        flags     = 
+        frag      = 0
+        ttl       = 64
+        proto     = udp
+        chksum    = 0x6625
+        src       = 10.79.0.1
+        dst       = 10.79.0.3
+        \options   \
+###[ UDP ]### 
+           sport     = 4321
+           dport     = 4321
+           len       = 18
+           chksum    = 0xf43e
+###[ Raw ]### 
+              load      = 'loop-after'
+
+Sent from h1-eth0.
+mininet> sh grep -c "Processing packet received" logs/s1.txt logs/s2.txt
+logs/s1.txt:666
+logs/s2.txt:663
+mininet> sh sleep 3; grep -c "Processing packet received" logs/s1.txt logs/s2.txt
+logs/s1.txt:666
+logs/s2.txt:663
+mininet> sh cat logs/h2.txt logs/h3.txt
+Listening on h2-eth0...
+Received (tunnelled, dst_id=2, hop_limit=6) from 10.79.0.1 to 10.79.0.3, TTL 64: 'hop-limit test'
+Listening on h3-eth0...
+
+mininet> sh grep -E "Processing packet received|myTunnel_exact|mark_to_drop|Action MyIngress.drop" logs/s1.txt | tail -45
+[15:31:25.389] [bmv2] [D] [thread 23564] [30568.0] [cxt 0] Table 'MyIngress.myTunnel_exact': hit with handle 2
+[15:31:25.396] [bmv2] [D] [thread 23564] [30569.0] [cxt 0] Processing packet received on port 2
+[15:31:25.396] [bmv2] [T] [thread 23564] [30569.0] [cxt 0] Applying table 'MyIngress.myTunnel_exact'
+[15:31:25.396] [bmv2] [D] [thread 23564] [30569.0] [cxt 0] Table 'MyIngress.myTunnel_exact': hit with handle 2
+[15:31:25.398] [bmv2] [D] [thread 23564] [30570.0] [cxt 0] Processing packet received on port 2
+[15:31:25.398] [bmv2] [T] [thread 23564] [30570.0] [cxt 0] Applying table 'MyIngress.myTunnel_exact'
+[15:31:25.398] [bmv2] [D] [thread 23564] [30570.0] [cxt 0] Table 'MyIngress.myTunnel_exact': hit with handle 2
+[15:31:25.401] [bmv2] [D] [thread 23564] [30571.0] [cxt 0] Processing packet received on port 2
+[15:31:25.401] [bmv2] [T] [thread 23564] [30571.0] [cxt 0] Applying table 'MyIngress.myTunnel_exact'
+[15:31:25.401] [bmv2] [D] [thread 23564] [30571.0] [cxt 0] Table 'MyIngress.myTunnel_exact': hit with handle 2
+[15:31:25.403] [bmv2] [D] [thread 23564] [30572.0] [cxt 0] Processing packet received on port 2
+[15:31:25.404] [bmv2] [T] [thread 23564] [30572.0] [cxt 0] Applying table 'MyIngress.myTunnel_exact'
+[15:31:25.404] [bmv2] [D] [thread 23564] [30572.0] [cxt 0] Table 'MyIngress.myTunnel_exact': hit with handle 2
+[16:01:41.145] [bmv2] [D] [thread 38076] Set default default entry for table 'MyIngress.myTunnel_exact': MyIngress.drop - 
+[16:01:41.412] [bmv2] [D] [thread 38120] Entry 0 added to table 'MyIngress.myTunnel_exact'
+[16:01:41.412] [bmv2] [D] [thread 38120] Entry 1 added to table 'MyIngress.myTunnel_exact'
+[16:01:41.412] [bmv2] [D] [thread 38120] Entry 2 added to table 'MyIngress.myTunnel_exact'
+[16:02:05.067] [bmv2] [D] [thread 38088] [0.0] [cxt 0] Processing packet received on port 1
+[16:02:05.068] [bmv2] [T] [thread 38088] [0.0] [cxt 0] Applying table 'MyIngress.myTunnel_exact'
+[16:02:05.068] [bmv2] [D] [thread 38088] [0.0] [cxt 0] Table 'MyIngress.myTunnel_exact': hit with handle 1
+[16:02:15.067] [bmv2] [D] [thread 38088] [1.0] [cxt 0] Processing packet received on port 1
+[16:02:15.072] [bmv2] [D] [thread 38088] [2.0] [cxt 0] Processing packet received on port 2
+[16:02:16.067] [bmv2] [D] [thread 38088] [3.0] [cxt 0] Processing packet received on port 1
+[16:02:16.072] [bmv2] [D] [thread 38088] [4.0] [cxt 0] Processing packet received on port 2
+[16:02:51.218] [bmv2] [D] [thread 38088] [5.0] [cxt 0] Processing packet received on port 1
+[16:02:51.219] [bmv2] [T] [thread 38088] [5.0] [cxt 0] Applying table 'MyIngress.myTunnel_exact'
+[16:02:51.219] [bmv2] [D] [thread 38088] [5.0] [cxt 0] Table 'MyIngress.myTunnel_exact': hit with handle 1
+[16:02:56.273] [bmv2] [D] [thread 38088] [6.0] [cxt 0] Processing packet received on port 1
+[16:02:56.278] [bmv2] [T] [thread 38088] [6.0] [cxt 0] Action MyIngress.drop
+[16:02:56.278] [bmv2] [T] [thread 38088] [6.0] [cxt 0] tunnel.p4(97) Primitive mark_to_drop(standard_metadata)
+[16:08:07.742] [bmv2] [D] [thread 38088] [7.0] [cxt 0] Processing packet received on port 1
+[16:08:07.743] [bmv2] [T] [thread 38088] [7.0] [cxt 0] Applying table 'MyIngress.myTunnel_exact'
+[16:08:07.743] [bmv2] [D] [thread 38088] [7.0] [cxt 0] Table 'MyIngress.myTunnel_exact': hit with handle 2
+[16:08:07.746] [bmv2] [D] [thread 38088] [8.0] [cxt 0] Processing packet received on port 2
+[16:08:07.749] [bmv2] [T] [thread 38088] [8.0] [cxt 0] Applying table 'MyIngress.myTunnel_exact'
+[16:08:07.750] [bmv2] [D] [thread 38088] [8.0] [cxt 0] Table 'MyIngress.myTunnel_exact': hit with handle 2
+[16:08:07.756] [bmv2] [D] [thread 38088] [9.0] [cxt 0] Processing packet received on port 2
+[16:08:07.756] [bmv2] [T] [thread 38088] [9.0] [cxt 0] Applying table 'MyIngress.myTunnel_exact'
+[16:08:07.756] [bmv2] [D] [thread 38088] [9.0] [cxt 0] Table 'MyIngress.myTunnel_exact': hit with handle 2
+[16:08:07.759] [bmv2] [D] [thread 38088] [10.0] [cxt 0] Processing packet received on port 2
+[16:08:07.761] [bmv2] [T] [thread 38088] [10.0] [cxt 0] Applying table 'MyIngress.myTunnel_exact'
+[16:08:07.761] [bmv2] [D] [thread 38088] [10.0] [cxt 0] Table 'MyIngress.myTunnel_exact': hit with handle 2
+[16:08:07.763] [bmv2] [D] [thread 38088] [11.0] [cxt 0] Processing packet received on port 2
+[16:08:07.764] [bmv2] [T] [thread 38088] [11.0] [cxt 0] Action MyIngress.drop
+[16:08:07.764] [bmv2] [T] [thread 38088] [11.0] [cxt 0] tunnel.p4(97) Primitive mark_to_drop(standard_metadata)
+
+mininet> sh grep -E "Processing packet received|myTunnel_exact|mark_to_drop|Action MyIngress.drop" logs/s2.txt | tail -45
+[15:31:25.377] [bmv2] [D] [thread 23581] [30567.0] [cxt 0] Processing packet received on port 1
+[15:31:25.382] [bmv2] [T] [thread 23581] [30567.0] [cxt 0] Applying table 'MyIngress.myTunnel_exact'
+[15:31:25.382] [bmv2] [D] [thread 23581] [30567.0] [cxt 0] Table 'MyIngress.myTunnel_exact': hit with handle 2
+[15:31:25.395] [bmv2] [D] [thread 23581] [30568.0] [cxt 0] Processing packet received on port 1
+[15:31:25.395] [bmv2] [T] [thread 23581] [30568.0] [cxt 0] Applying table 'MyIngress.myTunnel_exact'
+[15:31:25.395] [bmv2] [D] [thread 23581] [30568.0] [cxt 0] Table 'MyIngress.myTunnel_exact': hit with handle 2
+[15:31:25.397] [bmv2] [D] [thread 23581] [30569.0] [cxt 0] Processing packet received on port 1
+[15:31:25.397] [bmv2] [T] [thread 23581] [30569.0] [cxt 0] Applying table 'MyIngress.myTunnel_exact'
+[15:31:25.397] [bmv2] [D] [thread 23581] [30569.0] [cxt 0] Table 'MyIngress.myTunnel_exact': hit with handle 2
+[15:31:25.398] [bmv2] [D] [thread 23581] [30570.0] [cxt 0] Processing packet received on port 1
+[15:31:25.399] [bmv2] [T] [thread 23581] [30570.0] [cxt 0] Applying table 'MyIngress.myTunnel_exact'
+[15:31:25.399] [bmv2] [D] [thread 23581] [30570.0] [cxt 0] Table 'MyIngress.myTunnel_exact': hit with handle 2
+[15:31:25.402] [bmv2] [D] [thread 23581] [30571.0] [cxt 0] Processing packet received on port 1
+[15:31:25.403] [bmv2] [T] [thread 23581] [30571.0] [cxt 0] Applying table 'MyIngress.myTunnel_exact'
+[15:31:25.403] [bmv2] [D] [thread 23581] [30571.0] [cxt 0] Table 'MyIngress.myTunnel_exact': hit with handle 2
+[15:31:25.405] [bmv2] [D] [thread 23581] [30572.0] [cxt 0] Processing packet received on port 1
+[15:31:25.406] [bmv2] [T] [thread 23581] [30572.0] [cxt 0] Applying table 'MyIngress.myTunnel_exact'
+[15:31:25.406] [bmv2] [D] [thread 23581] [30572.0] [cxt 0] Table 'MyIngress.myTunnel_exact': hit with handle 2
+[16:01:41.245] [bmv2] [D] [thread 38099] Set default default entry for table 'MyIngress.myTunnel_exact': MyIngress.drop - 
+[16:01:41.498] [bmv2] [D] [thread 38122] Entry 0 added to table 'MyIngress.myTunnel_exact'
+[16:01:41.498] [bmv2] [D] [thread 38122] Entry 1 added to table 'MyIngress.myTunnel_exact'
+[16:01:41.498] [bmv2] [D] [thread 38122] Entry 2 added to table 'MyIngress.myTunnel_exact'
+[16:02:05.069] [bmv2] [D] [thread 38105] [0.0] [cxt 0] Processing packet received on port 1
+[16:02:05.070] [bmv2] [T] [thread 38105] [0.0] [cxt 0] Applying table 'MyIngress.myTunnel_exact'
+[16:02:05.070] [bmv2] [D] [thread 38105] [0.0] [cxt 0] Table 'MyIngress.myTunnel_exact': hit with handle 1
+[16:02:15.068] [bmv2] [D] [thread 38105] [1.0] [cxt 0] Processing packet received on port 1
+[16:02:15.071] [bmv2] [D] [thread 38105] [2.0] [cxt 0] Processing packet received on port 3
+[16:02:16.067] [bmv2] [D] [thread 38105] [3.0] [cxt 0] Processing packet received on port 1
+[16:02:16.070] [bmv2] [D] [thread 38105] [4.0] [cxt 0] Processing packet received on port 3
+[16:02:51.220] [bmv2] [D] [thread 38105] [5.0] [cxt 0] Processing packet received on port 1
+[16:02:51.221] [bmv2] [T] [thread 38105] [5.0] [cxt 0] Action MyIngress.drop
+[16:02:51.221] [bmv2] [T] [thread 38105] [5.0] [cxt 0] tunnel.p4(97) Primitive mark_to_drop(standard_metadata)
+[16:07:34.477] [bmv2] [D] [thread 40622] Modified entry 2 in table 'MyIngress.myTunnel_exact'
+[16:08:07.744] [bmv2] [D] [thread 38105] [6.0] [cxt 0] Processing packet received on port 1
+[16:08:07.745] [bmv2] [T] [thread 38105] [6.0] [cxt 0] Applying table 'MyIngress.myTunnel_exact'
+[16:08:07.745] [bmv2] [D] [thread 38105] [6.0] [cxt 0] Table 'MyIngress.myTunnel_exact': hit with handle 2
+[16:08:07.753] [bmv2] [D] [thread 38105] [7.0] [cxt 0] Processing packet received on port 1
+[16:08:07.754] [bmv2] [T] [thread 38105] [7.0] [cxt 0] Applying table 'MyIngress.myTunnel_exact'
+[16:08:07.754] [bmv2] [D] [thread 38105] [7.0] [cxt 0] Table 'MyIngress.myTunnel_exact': hit with handle 2
+[16:08:07.757] [bmv2] [D] [thread 38105] [8.0] [cxt 0] Processing packet received on port 1
+[16:08:07.758] [bmv2] [T] [thread 38105] [8.0] [cxt 0] Applying table 'MyIngress.myTunnel_exact'
+[16:08:07.758] [bmv2] [D] [thread 38105] [8.0] [cxt 0] Table 'MyIngress.myTunnel_exact': hit with handle 2
+[16:08:07.761] [bmv2] [D] [thread 38105] [9.0] [cxt 0] Processing packet received on port 1
+[16:08:07.762] [bmv2] [T] [thread 38105] [9.0] [cxt 0] Applying table 'MyIngress.myTunnel_exact'
+[16:08:07.762] [bmv2] [D] [thread 38105] [9.0] [cxt 0] Table 'MyIngress.myTunnel_exact': hit with handle 2

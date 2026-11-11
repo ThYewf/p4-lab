@@ -25,6 +25,7 @@ header ethernet_t {
 header myTunnel_t {
     bit<16> proto_id;   // what follows the tunnel header, like etherType (0x0800: IPv4)
     bit<16> dst_id;     // which tunnel exit to deliver to: 1 = h1, 2 = h2, 3 = h3
+    bit<8>  hop_limit;
 }
 
 header ipv4_t {
@@ -121,7 +122,13 @@ control MyIngress(inout headers hdr,
 
     apply {
         if (hdr.myTunnel.isValid()) {
-            myTunnel_exact.apply();
+            if (hdr.myTunnel.hop_limit == 0) {
+                drop();
+            } else {
+                hdr.myTunnel.hop_limit =
+                    hdr.myTunnel.hop_limit - 1;
+                myTunnel_exact.apply();
+            }
         } else if (hdr.ipv4.isValid()) {
             ipv4_lpm.apply();
         } else {

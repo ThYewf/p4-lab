@@ -1,0 +1,77 @@
+mininet> h1 python3 send.py 10.79.0.3 "delivery-h2" --tunnel 2 --hops 8
+###[ Ethernet ]### 
+  dst       = ff:ff:ff:ff:ff:ff
+  src       = 00:00:00:00:00:01
+  type      = 0x1212
+###[ MyTunnel ]### 
+     proto_id  = 2048
+     dst_id    = 2
+     hop_limit = 8
+###[ IP ]### 
+        version   = 4
+        ihl       = 5
+        tos       = 0x0
+        len       = 39
+        id        = 1
+        flags     = 
+        frag      = 0
+        ttl       = 64
+        proto     = udp
+        chksum    = 0x6624
+        src       = 10.79.0.1
+        dst       = 10.79.0.3
+        \options   \
+###[ UDP ]### 
+           sport     = 4321
+           dport     = 4321
+           len       = 19
+           chksum    = 0xb04e
+###[ Raw ]### 
+              load      = 'delivery-h2'
+
+Sent from h1-eth0.
+mininet> h1 python3 send.py 10.79.0.3 "delivery-h3" --tunnel 3 --hops 8
+###[ Ethernet ]### 
+  dst       = ff:ff:ff:ff:ff:ff
+  src       = 00:00:00:00:00:01
+  type      = 0x1212
+###[ MyTunnel ]### 
+     proto_id  = 2048
+     dst_id    = 3
+     hop_limit = 8
+###[ IP ]### 
+        version   = 4
+        ihl       = 5
+        tos       = 0x0
+        len       = 39
+        id        = 1
+        flags     = 
+        frag      = 0
+        ttl       = 64
+        proto     = udp
+        chksum    = 0x6624
+        src       = 10.79.0.1
+        dst       = 10.79.0.3
+        \options   \
+###[ UDP ]### 
+           sport     = 4321
+           dport     = 4321
+           len       = 19
+           chksum    = 0xaf4e
+###[ Raw ]### 
+              load      = 'delivery-h3'
+
+Sent from h1-eth0.
+mininet> h1 ping -c 2 h3
+PING 10.79.0.3 (10.79.0.3) 56(84) bytes of data.
+64 bytes from 10.79.0.3: icmp_seq=1 ttl=62 time=8.15 ms
+64 bytes from 10.79.0.3: icmp_seq=2 ttl=62 time=4.40 ms
+
+--- 10.79.0.3 ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss, time 1001ms
+rtt min/avg/max/mdev = 4.400/6.277/8.154/1.877 ms
+mininet> sh cat logs/h2.txt logs/h3.txt
+Listening on h2-eth0...
+Received (tunnelled, dst_id=2, hop_limit=6) from 10.79.0.1 to 10.79.0.3, TTL 64: 'delivery-h2'
+Listening on h3-eth0...
+Received (tunnelled, dst_id=3, hop_limit=6) from 10.79.0.1 to 10.79.0.3, TTL 64: 'delivery-h3'

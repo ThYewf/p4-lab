@@ -1,0 +1,268 @@
+# C5 — Mixed-Version Rollout Evidence
+
+Student ID suffix: 5879
+
+## Test Environment
+
+Command:
+
+```text
+python3 topo.py --id 5879 --s2-program tunnel_v1.p4
+```
+
+Startup output:
+
+```text
+*** Compiling tunnel.p4
+*** Compiling tunnel_v1.p4
+*** Starting 2 switches
+s1 s2
+*** s1: 6 table entries added
+*** s2: 6 table entries added
+*** Mixed rollout: s1 runs tunnel.p4, s2 runs tunnel_v1.p4
+```
+
+Configuration:
+- s1: New P4 program, 5-byte tunnel header with 8-bit hop limit
+- s2: Original P4 program, 4-byte tunnel header without hop limit
+
+---
+
+## A. Mixed-Version Delivery Test
+
+### A1. Send a tunnelled packet
+
+Command:
+
+```text
+h1 python3 send.py 10.79.0.3 "mixed" --tunnel 2 --hops 8
+```
+
+Selected sender output:
+
+```text
+###[ Ethernet ]###
+  type      = 0x1212
+###[ MyTunnel ]###
+  proto_id  = 2048
+  dst_id    = 2
+  hop_limit = 8
+###[ IP ]###
+  ttl       = 64
+  src       = 10.79.0.1
+  dst       = 10.79.0.3
+###[ Raw ]###
+  load      = 'mixed'
+
+Sent from h1-eth0.
+```
+
+### A2. Old switch forwarding
+
+Selected s2 log from the original mixed-version run:
+
+```text
+[16:34:27.555] Parser state 'start': key is 1212
+[16:34:27.555] Extracting header 'myTunnel'
+[16:34:27.555] Bytes parsed: 18
+[16:34:27.555] Extracting header 'ipv4'
+[16:34:27.555] Bytes parsed: 38
+[16:34:27.555] Table 'MyIngress.myTunnel_exact': hit with handle 1
+[16:34:27.555] Egress port is 2
+[16:34:27.556] Transmitting packet of size 52 out of port 2
+```
+
+### A3. Successful Ethernet packet capture at h2
+
+The mixed-delivery test was repeated using a fresh mixed-version network.
+
+Configuration:
+
+```text
+python3 topo.py --id 5879 --s2-program tunnel_v1.p4
+```
+
+Packet capture command:
+
+```text
+h2 timeout 8 tcpdump -c 1 -XX -ni h2-eth0 ether proto 0x1212 > logs/h2cap.txt 2>&1 &
+```
+
+Capture result:
+
+```text
+17:11:35.204102 00:00:00:00:00:01 > ff:ff:ff:ff:ff:ff, ethertype Unknown (0x1212), length 52:
+        0x0000:  ffff ffff ffff 0000 0000 0001 1212 0800
+        0x0010:  0002 0745 0000 2100 0100 0040 0d66 2a0a
+        0x0020:  4f00 010a 4f00 0310 e110 e100 0d7f a16d
+        0x0030:  6978 6564
+
+1 packet captured
+1 packet received by filter
+0 packets dropped by kernel
+```
+
+### A4. Observations
+
+The old s2 switch successfully matched tunnel destination ID 2 and forwarded the packet to port 2.
+
+The repeated experiment confirmed that h2's Ethernet interface received the packet.
+
+The captured bytes include:
+
+```text
+08 00 | 00 02 | 07 | 45 00 ...
+proto | dst   | hop| IPv4
+```
+
+Although the old switch expects a four-byte tunnel header and therefore begins IPv4 parsing one byte too early, the extra hop-limit byte remains present in the transmitted packet.
+
+The captured frame retains the upgraded five-byte tunnel layout and the original application payload.
+
+**Finding:** Mixed-version delivery succeeds at the Ethernet-frame level in this test, despite the old switch interpreting the encapsulated IPv4 header incorrectly. Application-level reception must be evaluated separately.
+
+### A5. Application-Level Reception
+
+Command:
+
+```text
+sh cat logs/h2.txt logs/h3.txt
+```
+
+Output:
+
+```text
+Listening on h2-eth0...
+Listening on h3-eth0...
+```
+
+Neither receiver reported the `mixed` payload.
+
+**Observation:** tcpdump confirmed that the Ethernet frame reached h2, including the new hop-limit byte and original payload. However, `receive.py` did not report successful application-level reception.
+
+The old switch interpreted the IPv4 header using the original four-byte tunnel layout, while the transmitted frame contained the new five-byte layout. The experiment demonstrates partial wire-format compatibility, but does not establish the exact cause of the missing application-level output.
+
+**Conclusion:** Mixed-version forwarding succeeded at the Ethernet level but did not achieve observable application-level delivery. The old switch's ability to forward the packet should not be treated as proof of full protocol compatibility.
+
+---
+
+## B. Mixed-Version Loop Test
+
+### B1. Configure the forwarding loop
+
+Command:
+
+```text
+sh ./p4cli s2 "table_modify MyIngress.myTunnel_exact MyIngress.myTunnel_forward 2 1"
+```
+
+Output:
+
+```text
+Done
+Modifying entry 2 for exact match table MyIngress.myTunnel_exact
+```
+
+This changes tunnel destination 3 on s2 to output port 1, returning packets to s1.
+
+### B2. Measure counters before injection
+
+Command:
+
+```text
+sh grep -c "Processing packet received" logs/s1.txt logs/s2.txt
+```
+
+Output:
+
+```text
+logs/s1.txt:673
+logs/s2.txt:670
+```
+
+### B3. Inject a looped packet
+
+Command:
+
+```text
+h1 python3 send.py 10.79.0.3 "mixed-loop" --tunnel 3 --hops 8
+```
+
+Selected sender output:
+
+```text
+###[ MyTunnel ]###
+  proto_id  = 2048
+  dst_id    = 3
+  hop_limit = 8
+###[ IP ]###
+  ttl       = 64
+  src       = 10.79.0.1
+  dst       = 10.79.0.3
+###[ Raw ]###
+  load      = 'mixed-loop'
+
+Sent from h1-eth0.
+```
+
+### B4. Counters after injection
+
+First measurement:
+
+```text
+logs/s1.txt:682
+logs/s2.txt:678
+```
+
+After three seconds:
+
+```text
+logs/s1.txt:682
+logs/s2.txt:678
+```
+
+Observed increase:
+- s1: 9 packet-processing events
+- s2: 8 packet-processing events
+- Total: 17 packet-processing events
+
+### B5. Old switch forwarding evidence
+
+Selected s2 log:
+
+```text
+[16:35:49.789] Table 'MyIngress.myTunnel_exact': hit with handle 2
+[16:35:49.789] Action MyIngress.myTunnel_forward
+[16:35:49.789] Egress port is 1
+[16:35:49.790] Transmitting packet of size 57 out of port 1
+```
+
+The old s2 switch forwarded the packet back toward s1.
+
+### B6. Upgraded switch expiration evidence
+
+Selected s1 log:
+
+```text
+[16:35:49.821] tunnel.p4(124) Condition "hdr.myTunnel.isValid()" (node_2) is true
+[16:35:49.821] tunnel.p4(125) Condition "hdr.myTunnel.hop_limit == 0" (node_3) is true
+[16:35:49.821] Applying table 'tbl_drop'
+[16:35:49.821] Action entry is MyIngress.drop -
+[16:35:49.821] Action MyIngress.drop
+[16:35:49.821] tunnel.p4(97) Primitive mark_to_drop(standard_metadata)
+[16:35:49.821] Egress port is 511
+[16:35:49.821] Dropping packet at the end of ingress
+```
+
+This confirms that the upgraded s1 switch explicitly dropped the packet after detecting an exhausted hop limit.
+
+---
+
+## C. Summary of Observations
+
+1. The old s2 switch recognised the unchanged tunnel destination ID and selected the expected forwarding port, but successful application delivery was not observed.
+2. The old switch parsed the encapsulated IPv4 header using the original four-byte tunnel-header layout, which is incompatible with the new five-byte format.
+3. In the mixed-version loop, s2 continued forwarding packets without enforcing a hop limit.
+4. The upgraded s1 switch eventually detected `hop_limit == 0` and dropped the packet. Both switch processing counts then remained stable.
+
+**Conclusion:** Mixed-version deployment does not guarantee end-to-end packet-format compatibility. However, this experiment demonstrates that an upgraded switch on the loop path can enforce a finite hop limit even when another switch is still running the original program.
